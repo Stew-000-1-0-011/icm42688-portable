@@ -1,4 +1,5 @@
-# WARNING: This project is still in development and is not yet ready for use.
+# WARNING: This project is still in development and is not yet ready for use.全然できてないよ！！
+
 
 # icm42688-portable
 A portable driver for the ICM42688 IMU sensor.

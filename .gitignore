@@ -1,0 +1,7 @@
+Cargo.lock
+target/
+.vscode/
+usb_read_py/
+!usb_read_py/main.py
+!usb_read_py/pyproject.toml
+hoge

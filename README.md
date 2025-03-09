@@ -1,3 +1,5 @@
+# WARNING: This project is still in development and is not yet ready for use.
+
 # icm42688-portable
 A portable driver for the ICM42688 IMU sensor.
 This driver is based on the embedded-hal and embedded-hal-async traits, and is designed to be used with any platform that implements these traits.

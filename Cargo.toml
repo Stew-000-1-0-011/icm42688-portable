@@ -5,13 +5,21 @@ readme = "README.md"
 name = "icm42688-portable"
 version = "0.1.0"
 
+[features]
+default = ["async"]
+async = ["dep:embedded-hal-async"]
+
 [dependencies]
-embedded-hal-async = "1"
-embedded-io-async = "0.6"
+embedded-hal-async = {version = "1", optional = true}
+embedded-hal = {version = "1", optional = true}
 embedded-hal-bus = "0.3"
 
+[dev-dependencies.embedded-halv02]
+package = "embedded-hal"
+version = "0.2.7"
+
 [dev-dependencies]
-cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m = {version = "0.7", features = ["critical-section-single-core"]}
 cortex-m-rt = "0.7"
 cortex-m-semihosting = "0.5"
 panic-halt = "1"

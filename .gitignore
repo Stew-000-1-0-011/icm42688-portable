@@ -1,7 +1,9 @@
 Cargo.lock
 target/
 .vscode/
-usb_read_py/*
-!usb_read_py/main.py
-!usb_read_py/pyproject.toml
+python_scripts/*
+!python_scripts/usb_test.py
+!python_scripts/spi_from_usb.py
+!python_scripts/pyproject.toml
+!python_scripts/README.md
 hoge

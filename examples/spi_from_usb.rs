@@ -21,7 +21,8 @@ use stm32f1xx_hal:: {
 	prelude::*,
 };
 
-// use embedded_halv02::spi as spiv02;
+use embedded_halv02::spi as spiv02;
+use spiv02::FullDuplex;
 
 use usb_device::prelude::*;
 use usbd_serial:: {
@@ -142,7 +143,7 @@ fn main() -> ! {
 		spi_mode,
 		24u32.MHz(),
 		clocks,
-	);
+	).frame_size_16bit();
 	spi_p.bit_format(spi::SpiBitFormat::MsbFirst);
 
 	// USBペリフェラルの初期化
@@ -186,16 +187,27 @@ fn main() -> ! {
 		if usb_stack.poll(&mut [&mut serial]) {
 			let mut buf = [0u8; 256];
 			match serial.read(&mut buf) {
-				Ok(count) if 1 <= count => {
-					for c in buf.iter_mut().take(count) {
-						if b'a' <= *c && *c <= b'z' {
-							let delta = *c - b'a';
-							*c = b'A' + (delta + 1) % 26;
+				Ok(count) if 2 <= count => {
+					let addr = buf[0];
+					let num = buf[1];
+					assert!(count >= num as usize + 2, "count or num is invalid: count={}, num={}", count, num);
+
+					if addr & 0x80 == 0 {  // Write
+						for data in buf.iter_mut().skip(2).take(num as usize) {
+							let word = (addr as u16) << 8 | *data as u16;
+							spi_p.send(word).ok();
 						}
 					}
-
-					// 送信
-					serial.write(&buf[..count]).ok();
+					else {  // Read
+						let word = (addr as u16) << 8;
+						spi_p.send(word).ok();
+						for i in 0..num {
+							let word = spi_p.read().unwrap();
+							buf[2 * i as usize] = (word >> 8) as u8;
+							buf[2 * i as usize + 1] = word as u8;
+						}
+						serial.write(&buf[..2 * num as usize]).ok();
+					}
 				},
 				// 何も読み込めなかった場合は何もしない
 				Err(UsbError::WouldBlock) => {},

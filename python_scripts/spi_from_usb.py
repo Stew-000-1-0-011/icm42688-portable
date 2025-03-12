@@ -17,10 +17,9 @@ def main():
 			ser.write(bytes([first_byte, num]))
 			for i in range(num): print(ser.read())
 		elif rw == "w":
-			assert len(s[2]) % 2 == 0
-			num = len(s[2]) // 2
+			assert len(s[2]) == 2
 			first_byte = addr
-			data = bytes([first_byte, num]) + bytes.fromhex(s[2])
+			data = bytes([first_byte]) + bytes.fromhex(s[2])
 			ser.write(data)
 		else:
 			print("Invalid command.")

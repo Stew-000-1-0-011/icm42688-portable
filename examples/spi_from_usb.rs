@@ -189,16 +189,17 @@ fn main() -> ! {
 			match serial.read(&mut buf) {
 				Ok(count) if 2 <= count => {
 					let addr = buf[0];
-					let num = buf[1];
-					assert!(count >= num as usize + 2, "count or num is invalid: count={}, num={}", count, num);
 
 					if addr & 0x80 == 0 {  // Write
-						for data in buf.iter_mut().skip(2).take(num as usize) {
-							let word = (addr as u16) << 8 | *data as u16;
-							spi_p.send(word).ok();
-						}
+						// [addr, data]
+						assert!(count >= 3, "count is invalid: count={}", count);
+						let word = (addr as u16) << 8 | buf[1] as u16;
+						spi_p.send(word).ok();
 					}
 					else {  // Read
+						// [addr, num, data1, data2, ..., data_num]
+						let num = buf[1];
+						assert!(count >= num as usize + 2, "count or num is invalid: count={}, num={}", count, num);
 						let word = (addr as u16) << 8;
 						spi_p.send(word).ok();
 						for i in 0..num {

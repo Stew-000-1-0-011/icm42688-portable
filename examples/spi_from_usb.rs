@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(try_blocks)]
 
 use panic_halt as _;
 
@@ -32,23 +33,23 @@ use usbd_serial:: {
 use fugit::RateExtU32;
 
 // core::fmt::Writeを実装したバッファが欲しかった
-struct StrableBuffer<const SIZE: usize> {
-	buf: [u8; SIZE],
+struct WriteTo {
+	buf: [u8; 128],
 	pos: usize,
 }
 
-impl<const SIZE: usize> StrableBuffer<SIZE> {
+impl WriteTo {
 	fn new() -> Self {
-		Self { buf: [0; SIZE], pos: 0 }
+		Self { buf: [0u8; 128], pos: 0 }
 	}
 
-	fn as_str(&self) -> &str {
-		core::str::from_utf8(&self.buf[..self.pos]).unwrap_or("as_str failed")
+	fn as_str(&self) -> Result<&str, core::str::Utf8Error> {
+		core::str::from_utf8(&self.buf[..self.pos])
 	}
 }
 
-impl<const SIZE: usize> Write for StrableBuffer<SIZE> {
-	fn write_str(&mut self, s: &str) -> fmt::Result {
+impl Write for WriteTo {
+	fn write_str(&mut self, s: &str) -> core::fmt::Result {
 		let bytes = s.as_bytes();
 		let len = bytes.len().min(self.buf.len() - self.pos);
 		if self.pos + len > self.buf.len() {
@@ -58,6 +59,17 @@ impl<const SIZE: usize> Write for StrableBuffer<SIZE> {
 		self.pos += len;
 		Ok(())
 	}
+}
+
+// writerのライフタイムの保証が面倒だったんで、ErrorMessageはスライスでなく配列とWriteToを持つようにした。
+struct ErrorMessage<'a>(&'a str);
+fn error_message<'a>(writer: &'a mut WriteTo, args: core::fmt::Arguments) -> ErrorMessage<'a> {
+	write!(writer, "E{}", args).or_else(|_| write!(writer, "Efmt error")).ok();
+	ErrorMessage(writer.as_str().unwrap_or("EUTF-8 error"))
+}
+
+fn assert(condition: bool, message: ErrorMessage) -> Result<(), ErrorMessage> {
+	condition.then_some(()).ok_or(message)
 }
 
 #[cortex_m_rt::entry]
@@ -184,42 +196,94 @@ fn main() -> ! {
 	loop {
 		cortex_m::asm::wfi();
 
-		if usb_stack.poll(&mut [&mut serial]) {
-			let mut buf = [0u8; 256];
-			match serial.read(&mut buf) {
-				Ok(count) if 2 <= count => {
-					let addr = buf[0];
+		let writer = &mut WriteTo::new();
 
-					if addr & 0x80 == 0 {  // Write
-						// [addr, data]
-						assert!(count >= 3, "count is invalid: count={}", count);
-						let word = (addr as u16) << 8 | buf[1] as u16;
-						spi_p.send(word).ok();
-					}
-					else {  // Read
-						// [addr, num, data1, data2, ..., data_num]
-						let num = buf[1];
-						assert!(count >= num as usize + 2, "count or num is invalid: count={}, num={}", count, num);
-						let word = (addr as u16) << 8;
-						spi_p.send(word).ok();
-						for i in 0..num {
-							let word = spi_p.read().unwrap();
-							buf[2 * i as usize] = (word >> 8) as u8;
-							buf[2 * i as usize + 1] = word as u8;
+		if usb_stack.poll(&mut [&mut serial]) {
+			let res: Result<(), ErrorMessage> = try {
+				let mut buf = [0u8; 256];
+				match serial.read(&mut buf) {
+					Ok(count) if (2 <= count) => {
+						let mode = buf[0];
+
+						// 先頭がb'w'かb'r'で、countが奇数であることを確認
+						assert (
+							mode == b'w' || mode == b'r',
+							error_message(writer, format_args!("mode invalid. mode must be b'w'{} or b'r'{}: mode={}", b'w', b'r', mode))
+						)?;
+						assert(
+							count % 2 == 1,
+							error_message(writer, format_args!("count is invalid. count must be odd: count={}", count))
+						)?;
+
+						match mode {
+							b'w' => {  // write only mode
+								for i in 0..((count - 1) / 2) {
+									// 2byteずつbig-endianで送信(というよりは、先頭から順に2byteずつ送信)
+									let send_word = (buf[2 * i + 1] as u16) << 8 | buf[2 * i + 2] as u16;
+									spi_p.send(send_word)
+										.or_else(|e| {
+											Err(error_message(writer, format_args! (
+												"spi send error: {:?}", e
+											)))
+										})?;
+								}
+
+								// 送れたことを通知
+								serial.write(b"OK\r\n")
+									.or_else(|e| {
+										Err(error_message(writer, format_args! (
+											"seral write error: {:?}", e
+										)))
+									})?;
+							},
+							b'r' => {  // write and read
+								for i in 0..((count - 1) / 2) {
+									// 2byteずつbig-endianで送信(というよりは、先頭から順に2byteずつ送信)
+									let send_word = (buf[2 * i + 1] as u16) << 8 | buf[2 * i + 2] as u16;
+									spi_p.send(send_word)
+										.or_else(|e| {
+											Err(error_message(writer, format_args! (
+												"spi send error: {:?}", e
+											)))
+										})?;
+									// 受信
+									let recv_word = spi_p.read()
+										.or_else(|e| {
+											Err(error_message(writer, format_args! (
+												"spi read error: {:?}", e
+											)))
+										})?;
+									// bufにインプレースで書き込む
+									buf[2 * i + 1] = (recv_word >> 8) as u8;
+									buf[2 * i + 2] = recv_word as u8;
+								}
+
+								// 受信内容を送信(先頭のb'r'は送信しない)
+								serial.write(&buf[1..count])
+									.or_else(|e| {
+										Err(error_message(writer, format_args! (
+											"seral write error: {:?}", e
+										)))
+									})?;
+							}
+							_ => {},
 						}
-						serial.write(&buf[..2 * num as usize]).ok();
 					}
-				},
-				// 何も読み込めなかった場合は何もしない
-				Err(UsbError::WouldBlock) => {},
-				// それ以外のエラーが発生した場合はエラーメッセージを送信
-				Err(e) => {
-					let mut buffer = StrableBuffer::<128>::new();
-					write!(buffer, "Error: {:?}\r\n", e).ok();
-					serial.write(buffer.as_str().as_bytes()).ok();
-				},
-				_ => {},
-			}
+					// 何も読み込めなかった場合は何もしない
+					Err(UsbError::WouldBlock) => {},
+					// それ以外のエラーが発生した場合はエラーメッセージを送信
+					Err(e) => {
+						Err(error_message(writer, format_args! (
+							"seral read error: {:?}", e
+						)))?;
+					},
+					_ => {},
+				}
+			};
+			res.or_else(|error_mes| {
+				serial.write(error_mes.0.as_bytes()).ok();
+				Ok::<(), ()>(())  // suppress error
+			}).ok();
 		}
 	}
 }

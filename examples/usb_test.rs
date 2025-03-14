@@ -12,13 +12,17 @@ use cortex_m:: {
 
 use stm32f1xx_hal as _;
 use stm32f1xx_hal:: {
-	pac,
+	pac:: {
+		self,
+		interrupt,
+	},
 	rcc,
 	flash,
 	afio,
 	spi,
 	usb,
 	prelude::*,
+	
 };
 
 // use embedded_halv02::spi as spiv02;
@@ -174,15 +178,13 @@ fn main() -> ! {
 		.build()
 	;
 
-	// USB割り込みを有効化
-	unsafe {
-		NVIC::unmask(pac::Interrupt::USB_HP_CAN_TX);
-		NVIC::unmask(pac::Interrupt::USB_LP_CAN_RX0);
-	}
+	// // USB割り込みを有効化
+	// unsafe {
+	// 	NVIC::unmask(pac::Interrupt::USB_HP_CAN_TX);
+	// 	NVIC::unmask(pac::Interrupt::USB_LP_CAN_RX0);
+	// }
 
 	loop {
-		cortex_m::asm::wfi();
-
 		if usb_stack.poll(&mut [&mut serial]) {
 			let mut buf = [0u8; 256];
 			match serial.read(&mut buf) {
@@ -210,3 +212,15 @@ fn main() -> ! {
 		}
 	}
 }
+
+// // USB割り込みハンドラ(CANと共用されているためこのような名前になっている)
+// #[cortex_m_rt::interrupt]
+// fn USB_HP_CAN_TX() {
+// 	asm::nop();
+// }
+
+// // USB割り込みハンドラ(CANと共用されているためこのような名前になっている)
+// #[cortex_m_rt::interrupt]
+// fn USB_LP_CAN_RX0() {
+// 	asm::nop();
+// }

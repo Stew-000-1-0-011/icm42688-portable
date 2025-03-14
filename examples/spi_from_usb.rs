@@ -6,10 +6,7 @@ use panic_halt as _;
 
 use core::fmt::{self, Write};
 
-use cortex_m:: {
-	asm,
-	peripheral::NVIC,
-};
+use cortex_m::asm;
 
 use stm32f1xx_hal as _;
 use stm32f1xx_hal:: {
@@ -187,15 +184,7 @@ fn main() -> ! {
 		.build()
 	;
 
-	// USB割り込みを有効化
-	unsafe {
-		NVIC::unmask(pac::Interrupt::USB_HP_CAN_TX);
-		NVIC::unmask(pac::Interrupt::USB_LP_CAN_RX0);
-	}
-
 	loop {
-		cortex_m::asm::wfi();
-
 		let writer = &mut WriteTo::new();
 
 		if usb_stack.poll(&mut [&mut serial]) {
@@ -206,14 +195,17 @@ fn main() -> ! {
 						let mode = buf[0];
 
 						// 先頭がb'w'かb'r'で、countが奇数であることを確認
-						assert (
+						let hoge = assert (
 							mode == b'w' || mode == b'r',
-							error_message(writer, format_args!("mode invalid. mode must be b'w'{} or b'r'{}: mode={}", b'w', b'r', mode))
-						)?;
+							error_message(writer, format_args!("mode invalid. mode must be b'w'({}) or b'r'({}): mode={}", b'w', b'r', mode))
+						);
+						hoge?;
 						assert(
 							count % 2 == 1,
 							error_message(writer, format_args!("count is invalid. count must be odd: count={}", count))
 						)?;
+
+						serial.write(b"EInput seems valid\r\n").ok();
 
 						match mode {
 							b'w' => {  // write only mode
@@ -229,7 +221,7 @@ fn main() -> ! {
 								}
 
 								// 送れたことを通知
-								serial.write(b"OK\r\n")
+								serial.write(b"OOK\r\n")
 									.or_else(|e| {
 										Err(error_message(writer, format_args! (
 											"seral write error: {:?}", e
@@ -259,6 +251,11 @@ fn main() -> ! {
 								}
 
 								// 受信内容を送信(先頭のb'r'は送信しない)
+								serial.write(&[b'O']).or_else(|e| {
+									Err(error_message(writer, format_args! (
+										"seral write error: {:?}", e
+									)))
+								})?;
 								serial.write(&buf[1..count])
 									.or_else(|e| {
 										Err(error_message(writer, format_args! (
@@ -282,6 +279,7 @@ fn main() -> ! {
 			};
 			res.or_else(|error_mes| {
 				serial.write(error_mes.0.as_bytes()).ok();
+				serial.write(b"\r\n").ok();
 				Ok::<(), ()>(())  // suppress error
 			}).ok();
 		}

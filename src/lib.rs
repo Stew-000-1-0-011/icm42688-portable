@@ -1,7 +1,7 @@
 #![no_std]
 
-// mod register_map;
-// mod icm42688;
+mod type_number;
+mod register;
 
 // #[cfg(feature = "async")]
 // mod async_version;

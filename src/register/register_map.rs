@@ -2,11 +2,6 @@ trait Address<const BANK_NUM: u8> {
 	const ADDR: u8;
 }
 
-trait ByteReadable {}
-trait WordReadable {}
-trait MultiByteReadable {}
-trait Writable {}
-
 pub mod bank0 {
 	use super::*;
 
